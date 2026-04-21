@@ -5,7 +5,7 @@
 ---
 ### suspend
 
-- 중단 가능한 함수 
+- 중단 가능하게 만들어줌
 
 ```kotlin
 suspend fun loadUser(): String {
