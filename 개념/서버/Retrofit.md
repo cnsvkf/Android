@@ -17,7 +17,7 @@ object RetrofitInstance {
     // 반드시 / 로 끝나는 baseUrl 이어야 함
     private const val BASE_URL = "https://example.com/api/"
 
-    // Retrofit 객체 생성
+    // Retrofit 객체 틀 만듦
     private val retrofit: Retrofit = Retrofit.Builder()
         .baseUrl(BASE_URL)
         .addConverterFactory(GsonConverterFactory.create())
