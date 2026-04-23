@@ -55,7 +55,9 @@ Retrofit.Builder()
 
     - StudentApiService 인터페이스를 기반으로 실제 네트워크 호출이 가능한 객체를 만듦
 
-    - StudentApiService::class.java : StudentApiService라는 인터페이스 자체의 타입 정보
+    - StudentApiService::class.java : StudentApiService
+    라는 인터페이스 자체의 타입 정보
+        - Retrofit 객체가 이걸 보고 생성
 
 -> 
 ### _자동으로 Retrofit 내부 처리_

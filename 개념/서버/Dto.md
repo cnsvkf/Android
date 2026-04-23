@@ -2,6 +2,8 @@
 
 - 서버에서 보내거나 받는 데이터 형식 
 
+- 옵셔널 가능
+
 ->
 
 ```kotlin
@@ -15,3 +17,6 @@ data class StudentDto(
     val major: String
 )
 ```
+
+---
+---

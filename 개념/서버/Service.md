@@ -15,3 +15,18 @@ interface StudentApiService {
     suspend fun getStudents(): List<Student>
 }
 ```
+
+---
+
+
+## 방식
+
+- GET : 데이터 조회
+- POST : 데이터 생성 / 로그인 요청 / 전송
+- PUT : 전체 수정
+- PATCH : 일부 수정
+- DELETE : 삭제
+
+\+ @POST("login") : login이 EndPoint가 됨
+
+->             val response = api.login(request)

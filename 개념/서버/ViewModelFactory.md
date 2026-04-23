@@ -55,6 +55,8 @@ class StudentViewModelFactory(
 
 - isAssignableFrom() : () 속성인지 확인(boolean)
 
+- return StudentViewModel(repository) as T : 
+
 - as T : create() 은 반환값이 T 강제 적용
     - Factory은 요청한 타입 그대로 반환이기에 T로 함
 
@@ -89,6 +91,8 @@ val viewModel = ViewModelProvider(this, factory)[StudentViewModel::class.java]
     - this : 보통 Activity or Fragment
 
 - [] : get() 문법
+    - Factory 가 Class\<T> 를 가지므로 []로 무엇을 가지는 지 전딜
+
      1. 먼저 저장소에서 같은 ViewModel이 있는지 찾음
     2. 있으면 기존 거 반환
     3. 없으면 Factory로 새로 만듦
