@@ -2,10 +2,12 @@
 
 # 함수
 
----
-### suspend
+
+### suspend(스위프트에서 await)
 
 - 중단 가능하게 만들어줌
+
+- 코루틴이 아니라, 코루틴 안에서 멈출 수 있는 함수 표시다
 
 ```kotlin
 suspend fun loadUser(): String {
@@ -31,13 +33,11 @@ viewModelScope.launch {
 ```
 ---
 
-### asacy
+### async
 
-- 결과를 나중에 받는 코루틴
+    async = 코루틴을 실행하고, 결과를 나중에 받을 수 있게 Deferred로 감싼다
 
-- 결과를 밖에서 받아 사용 가능
-
-- __동시에 여러 작업을 해야할 때 사용__
+    await = async 결과를 꺼낸다
 
 -> ___예시___
 

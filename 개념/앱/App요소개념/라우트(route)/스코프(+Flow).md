@@ -1,6 +1,6 @@
 # 개념
 
-### Scope
+## Scope
 - 스코프 = 코루틴의 생명주기(Lifecycle)를 관리하는 영역
 
 -> ___종류___
@@ -42,11 +42,11 @@ fun MyScreen() {
 }
 ```
 ---
----
-### Flow
+
+## Flow
 
 - 데이터흐름 __(상태를 흘려보냄)__
----
+
 - MutableStateFlow : 값이 바뀔 때마다 자동으로 UI나 다른 코드에 알려주는 상태 저장 객체
 
     - observer 패턴 형식
@@ -71,6 +71,8 @@ val state = _state.asStateFlow()
 ```Kotlin
 val name by viewModel.name.collectAsState()
 ```
+
+#### 문제는 화면이 완전히 사용자에게 보이지 않아도 Composition 안에 남아 있을 수 있다는 점이다. 예를 들어 Pager, Navigation, 백그라운드 상태 등에서 _불필요하게 collect가 유지_ 될 수 있다.
 
 ---
 ---
@@ -140,3 +142,29 @@ val eventFlow = _eventFlow.asSharedFlow()
 ```
 
 - .asStateFlow() : 읽기 전용
+
+---
+# collectAsStateWithLifecycle()
+
+쓰는 이유 :
+
+    Compose 화면은 Flow를 직접 읽는다고 자동으로 UI가 바뀌지 않는다.
+    -> 
+
+    Compose UI가 자동으로 다시 그려지려면 이 값을 Compose가 감지할 수 있는 State로 바꿔야 한다.
+
+기능 :
+- Flow 수집 + Compose State 변환 + Lifecycle 관리를 한 번에 해준다.
+
+- ___화면의 Lifecycle이 활성 상태일 때만___ collect한다. 공식 문서도 Android 앱에서 Flow를 수집할 때 ___권장 방식___ 으로 설명
+
+-> collectAsState() + 생명주기에 따른 관리
+
+### 필요 의존성
+
+```kotlin
+// 버전에 맞게
+    dependencies {
+        implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
+    }
+```

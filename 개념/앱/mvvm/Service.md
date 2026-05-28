@@ -41,3 +41,12 @@ interface StudentApiService {
 | `Body`    | 서버에 보내는 실제 JSON 데이터 | 로그인 아이디, 비밀번호     |
 | `Path`    | URL 경로 중간에 들어가는 변수값 | Get/usews/{user_id} 에서 {user_id}     |
 
+---
+## 정리
+
+    서버가 앱에게 보내는 HTTP 응답
+    └── Response
+        ├── Body / Data          → 실제 데이터(JSON, 이미지, 파일 등)
+        ├── Header               → 응답 설명 정보
+        ├── Status Code          → 성공/실패 번호
+        └── Metadata             → 응답에 대한 부가 정보 전체
