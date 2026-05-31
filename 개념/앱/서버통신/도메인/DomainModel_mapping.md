@@ -26,7 +26,7 @@ data class LoginToken(
 ```
 
 ---
----
+
 
 ## 도메인 모델 쓰는 이유
 
