@@ -747,3 +747,326 @@ data class PostEntity(
 |     10 |      999 | 이상한 글 |
 
 -> ___posts.writerId 값은 users.userId에 실제로 존재해야 한다.___ 라고 ___foreginKeys___ 로 막음
+
+---
+
+### Paging 연동
+#### 개념
+
+- ____데이터를 한 번에 많이 가져오면 안좋으므로 사용____
+
+        LazyColumn 화면
+            ↓
+        collectAsLazyPagingItems()
+            ↓
+        ViewModel의 Flow<PagingData<Post>>
+            ↓
+        Repository의 Pager
+            ↓
+        PagingSource.load()
+            ↓
+        서버 API 또는 Room DB
+
+Paging 3는 데이터를 한 번에 전부 가져오는 대신, ___PagingSource가 필요한 페이지 단위로 데이터___ 를 가져오고, ___Pager가 그 데이터를 Flow<PagingData<T>> 형태로 흘려보낸다.___ Compose에서는 collectAsLazyPagingItems()로 받아서 LazyColumn에 연결한다. 공식 구조도 Repository layer → ViewModel layer → UI layer로 나뉜다.
+
+\+ Paging이 Repository를 감싸는 게 아니라, ___Repository 안에서 Pager가 PagingSource를 감싼다.___
+
+    Repository
+    - Pager를 만든다.
+    - PagingSource를 Paging 시스템에 등록한다.
+    - ViewModel에 Flow<PagingData<Post>>를 넘긴다.
+
+    PagingSource
+    - 실제 서버 요청 방법을 정의한다.
+    - load() 안에서 postApi.getPosts(page, size)를 호출한다.
+
+#### 구조
+
+| 요소                           | 의미                   |
+| ---------------------------- | -------------------- |
+| `params.key`                 | 가져올 페이지 번호 또는 cursor |
+| `params.loadSize`            | 이번에 가져오라고 요청된 데이터 개수 |
+| `params.placeholdersEnabled` | placeholder 사용 여부    |
+| `LoadResult.Page`            | 성공 결과                |
+| `LoadResult.Error`           | 실패 결과                |
+| `prevKey`                    | 이전 페이지 key           |
+| `nextKey`                    | 다음 페이지 key           |
+
+
+| 매개변수                 | 의미                                        |
+| -------------------- | ----------------------------------------- |
+| `pageSize`           | 한 번에 가져올 기본 데이터 개수                        |
+| `prefetchDistance`   | 끝에서 몇 개 남았을 때 다음 페이지를 미리 가져올지             |
+| `enablePlaceholders` | 아직 안 가져온 데이터 자리에 `null` placeholder를 둘지   |
+| `initialLoadSize`    | 처음 로딩할 때 가져올 데이터 개수                       |
+| `maxSize`            | 메모리에 유지할 최대 아이템 수                         |
+| `jumpThreshold`      | 너무 멀리 점프했을 때 기존 페이지를 이어서 로딩하지 않고 새로고침할 기준 |
+
+| 클래스                        | 역할                                                            |
+| -------------------------- | ------------------------------------------------------------- |
+| `PagingSource<Key, Value>` | 데이터를 실제로 가져오는 클래스                                             |
+| `PagingConfig`             | 한 번에 몇 개 가져올지, 언제 다음 페이지를 미리 가져올지 설정                          |
+| `Pager`                    | `PagingSource`와 `PagingConfig`를 묶어서 `Flow<PagingData<T>>`를 만듦 |
+| `PagingData<T>`            | 페이징된 데이터 묶음                                                   |
+| `LazyPagingItems<T>`       | Compose `LazyColumn`에서 쓰기 좋은 형태로 변환된 데이터                      |
+| `RemoteMediator`           | 서버 + Room 캐시를 같이 쓸 때 사용                                       |
+
+    Paging 라이브러리
+            ↓
+    PostPagingSource.load()
+            ↓
+    postApi.getPosts(page, size)
+            ↓
+    서버에서 게시글 목록 가져옴
+            ↓
+    LoadResult.Page(data = posts)
+            ↓
+    화면 LazyColumn에 표시
+#### ___예시___
+
+```kotlin
+// 한번에 데이터 가져옴
+SELECT * FROM messages
+```
+
+-> Paging 사용
+
+```kotlin
+import androidx.paging.PagingSource
+import androidx.paging.PagingState
+
+// PostPagingSource는 서버에서 게시글을 페이지 단위로 가져오는 클래스다.
+//
+// Int:
+// - 페이지를 구분하는 key 타입이다.
+// - 여기서는 1페이지, 2페이지처럼 Int를 사용한다.
+//
+// Post:
+// - 실제로 화면에 보여줄 데이터 타입이다.
+class PostPagingSource(
+    private val postApi: PostApi
+) : PagingSource<Int, Post>() {
+
+    // load()는 Paging 라이브러리가 데이터가 필요할 때 자동으로 호출하는 메소드다.
+    //
+    // 예:
+    // - 처음 화면에 들어왔을 때 호출된다.
+    // - 사용자가 아래로 스크롤해서 다음 데이터가 필요할 때 다시 호출된다.
+    //
+    // params:
+    // - Paging이 넘겨주는 로드 요청 정보다.
+    // - params.key: 지금 가져올 페이지 번호다.
+    // - params.loadSize: 이번에 가져오라고 요청된 데이터 개수다.
+    //
+    // 반환 타입:
+    // - LoadResult<Int, Post>
+    // - 성공하면 LoadResult.Page를 반환한다.
+    // - 실패하면 LoadResult.Error를 반환한다.
+    override suspend fun load(
+        params: LoadParams<Int>
+    ): LoadResult<Int, Post> {
+        return try {
+            // params.key가 null이면 첫 로딩이라는 뜻이다.
+            // 그래서 기본값으로 1페이지를 사용한다.
+            val page = params.key ?: 1
+
+            // PagingConfig에서 정한 pageSize 또는 initialLoadSize가 params.loadSize로 들어온다.
+            val size = params.loadSize
+
+            // 서버에 page와 size를 넘겨서 게시글 목록을 가져온다.
+            val response = postApi.getPosts(
+                page = page,
+                size = size
+            )
+
+            val posts = response.posts
+
+            // LoadResult.Page는 성공적으로 가져온 페이지 결과다.
+            LoadResult.Page(
+                // 실제 데이터 목록이다.
+                data = posts,
+
+                // 이전 페이지 key다.
+                // 현재 page가 1이면 이전 페이지가 없으므로 null이다.
+                prevKey = if (page == 1) null else page - 1,
+
+                // 다음 페이지 key다.
+                // posts가 비어 있으면 더 이상 가져올 데이터가 없다고 보고 null을 넣는다.
+                nextKey = if (posts.isEmpty()) null else page + 1
+            )
+        } catch (e: Exception) {
+            // 서버 에러, 네트워크 에러 등이 발생하면 Error를 반환한다.
+            LoadResult.Error(e)
+        }
+    }
+
+    // getRefreshKey()는 새로고침할 때 어느 페이지부터 다시 가져올지 정하는 메소드다.
+    //
+    // state:
+    // - 현재까지 로드된 페이지 상태다.
+    // - 사용자가 현재 어느 위치 근처를 보고 있는지 알 수 있다.
+    //
+    // 반환 타입:
+    // - Int?
+    // - 다시 시작할 page key를 반환한다.
+    override fun getRefreshKey(
+        state: PagingState<Int, Post>
+    ): Int? {
+        // anchorPosition은 사용자가 최근에 보고 있던 아이템 위치다.
+        val anchorPosition = state.anchorPosition ?: return null
+
+        // anchorPosition에 가장 가까운 페이지를 찾는다.
+        val closestPage = state.closestPageToPosition(anchorPosition)
+
+        // prevKey가 있으면 prevKey + 1이 현재 페이지다.
+        // nextKey가 있으면 nextKey - 1이 현재 페이지다.
+        return closestPage?.prevKey?.plus(1)
+            ?: closestPage?.nextKey?.minus(1)
+    }
+}
+```
+### Repository에서 Pager 만들기
+```kotlin
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
+import kotlinx.coroutines.flow.Flow
+
+class PostRepository(
+    private val postApi: PostApi
+) {
+
+    // getPagedPosts()는 화면에 보여줄 게시글 페이징 스트림을 만드는 메소드다.
+    //
+    // 반환 타입:
+    // - Flow<PagingData<Post>>
+    // - 게시글 데이터가 페이지 단위로 흘러가는 Flow다.
+    fun getPagedPosts(): Flow<PagingData<Post>> {
+        return Pager(
+            // PagingConfig는 페이징 설정이다.
+            config = PagingConfig(
+                // 한 번에 가져올 기본 데이터 개수다.
+                pageSize = 20,
+
+                // 사용자가 끝에 도달하기 전에 미리 다음 페이지를 가져오는 거리다.
+                prefetchDistance = 5,
+
+                // 처음 로딩할 때 가져올 데이터 개수다.
+                // 설정하지 않으면 기본적으로 pageSize보다 크게 잡힌다.
+                initialLoadSize = 40,
+
+                // 아직 로드되지 않은 아이템 자리에 null placeholder를 둘지 여부다.
+                enablePlaceholders = false
+            ),
+
+            // PagingSource를 새로 만들어주는 함수다.
+            // PagingSource는 새로고침이나 invalidate가 발생하면 다시 만들어질 수 있다.
+            pagingSourceFactory = {
+                PostPagingSource(postApi)
+            }
+        ).flow
+    }
+}
+
+```
+
+
+### viewModel
+
+```Kotlin
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
+import kotlinx.coroutines.flow.Flow
+
+class PostViewModel(
+    private val postRepository: PostRepository
+) : ViewModel() {
+
+    // posts는 화면에서 구독할 페이징 데이터 흐름이다.
+    //
+    // cachedIn(viewModelScope):
+    // - ViewModel 범위 안에서 PagingData를 캐싱한다.
+    // - 화면 회전 같은 상황에서 같은 데이터를 다시 불필요하게 요청하는 것을 줄인다.
+    val posts: Flow<PagingData<Post>> =
+        postRepository.getPagedPosts()
+            .cachedIn(viewModelScope)
+}
+```
+
+--- 
+
+### Database Callback
+
+- DB가 처음 만들어졌을 때 초기 데이터를 넣고 싶을 수 있다.
+
+    - 예를 들어 앱 첫 실행 시 기본 카테고리를 넣는 경우
+
+-> _코드_
+
+```kt
+val database = Room.databaseBuilder(
+    context,
+    AppDatabase::class.java,
+    "app_database"
+)
+    // DB가 생성되거나 열릴 때 특정 작업을 실행할 수 있다.
+    .addCallback(object : RoomDatabase.Callback() {
+
+        // D가 처음 생성될 때 호출된다.
+        override fun onCreate(db: SupportSQLiteDatabase) {
+            super.onCreate(db)
+
+            // 초기 데이터 insert 같은 작업을 여기서 실행할 수 있다.
+        }
+    })
+    .build()
+```
+
+| 메소드                        | 호출 시점                | 자주 쓰는 용도      |
+| -------------------------- | -------------------- | ------------- |
+| `onCreate()`               | DB가 **처음 생성될 때 한 번** | 초기 데이터 넣기     |
+| `onOpen()`                 | DB가 **열릴 때마다**       | 로그, DB 상태 확인  |
+| `onDestructiveMigration()` | DB를 삭제 후 재생성했을 때     | 초기 데이터 복구, 로그 |
+
+--- 
+
+### In-Memory Database
+
+- 테스트 시 실제 DB 파일을 만들지 않고 _____메모리 안에서만 DB를 만들 수 있다._____
+
+1. Kotlin 코드 파일
+   - AppDatabase.kt
+   - UserEntity.kt
+   - UserDao.kt
+
+2. 실제 DB 데이터 파일
+   - app_database
+   - app_database-shm
+   - app_database-wal
+: 코드파일은 있지만 ___앱 내에서 DB파일을 저장 안함___
+
+#### 예시
+```kt
+// 이 DB는 앱 프로세스가 죽으면 사라진다.
+// 1. Room에게 "메모리 DB를 만들 Builder를 줘"라고 요청한다.
+val builder = Room.inMemoryDatabaseBuilder(
+    context,
+    AppDatabase::class.java
+)
+
+// 2. Builder에 설정을 붙인다.
+// 예: addCallback(), allowMainThreadQueries(), setQueryCallback() 등
+
+// 3. build()로 실제 AppDatabase 객체를 만든다.
+val database = builder.build()
+```
+
+| 부분                          | 역할                         |
+| --------------------------- | -------------------------- |
+| `Room`                      | Room DB를 생성하는 진입점 객체       |
+| `inMemoryDatabaseBuilder()` | 메모리 전용 DB Builder를 만든다     |
+| `context`                   | DB 생성에 필요한 Android Context |
+| `AppDatabase::class.java`   | 만들 RoomDatabase 클래스        |
+| `.build()`                  | 실제 DB 인스턴스를 생성             |
