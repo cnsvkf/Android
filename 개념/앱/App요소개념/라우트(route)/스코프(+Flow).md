@@ -1,5 +1,21 @@
 # 개념
 
+
+### State은 Compose가 감지할 수 있다.
+| 타입                | Compose가 바로 감지? | 설명                 |
+| ----------------- | --------------: | ------------------ |
+| `State<T>`        |              가능 | Compose 전용 상태      |
+| `MutableState<T>` |              가능 | 값 변경 가능 Compose 상태 |
+| `StateFlow<T>`    |          바로는 아님 | Kotlin Flow 상태     |
+| `Flow<T>`         |          바로는 아님 | 데이터 흐름             |
+
+1. ____StateFlow는 Kotlin Coroutine 쪽 상태____ 이기 때문에 Compose가 바로 감지 못함
+
+-> ViewModel에서 적합한 경우가 많기에 사용( ___ViewModel은 Compose에 종속되면 안되기에___ )
+
+2. Flow만 쓰는 경우 : 데이터 저장은 필요없고 변화만 흘려보낼 때
+
+
 ## Scope
 - 스코프 = 코루틴의 생명주기(Lifecycle)를 관리하는 영역
 
@@ -45,16 +61,14 @@ fun MyScreen() {
 
 ## Flow
 
-- 데이터흐름 __(상태를 흘려보냄)__
+데이터흐름 __(상태를 흘려보냄)__
 
 - MutableStateFlow : 값이 바뀔 때마다 자동으로 UI나 다른 코드에 알려주는 상태 저장 객체
 
     - observer 패턴 형식
 
--> ___같이 쓰이는 것___
 
 
----
 - asStateFlow() : 읽기 전용
 
 -> __예시__
@@ -63,16 +77,19 @@ private val _state = MutableStateFlow(0)
 val state = _state.asStateFlow()
 ```
 
----
 
-- collectAsState() : MutableStateFlow은 데이터흐름이기에 composable이 모름 따라서 collectAsState()로 값 수집
+
+- collectAsState() : MutableStateFlow은 ___데이터흐름이기에 composable이 모름___
+
+-> 따라서 collectAsState()로 값 수집
 
 -> __예시__
 ```Kotlin
 val name by viewModel.name.collectAsState()
 ```
 
-#### 문제는 화면이 완전히 사용자에게 보이지 않아도 Composition 안에 남아 있을 수 있다는 점이다. 예를 들어 Pager, Navigation, 백그라운드 상태 등에서 _불필요하게 collect가 유지_ 될 수 있다.
+주의 :
+ #### 화면이 완전히 사용자에게 보이지 않아도 Composition 안에 남아 있을 수 있다는 점이다. 예를 들어 Pager, Navigation, 백그라운드 상태 등에서 _불필요하게 collect가 유지_ 될 수 있다.
 
 ---
 ---
