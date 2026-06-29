@@ -103,6 +103,10 @@ class MyApplication : Application()
             ↓ 필요
             ApiService, Store
         
+1. 생성자 매개변수를 Hilt로 받겠다는 뜻도 있다.
+
+2. 더 근본적으로는 객체 자체를 Hilt가 만들 수 있게 등록하는 뜻이다.
+
 -> _예시_
 
 ```kt
@@ -127,8 +131,7 @@ class UserRepository @Inject constructor(
 - __ViewModel__ 을 Hilt가 생성하게 만드는 어노테이션
 
 ```kt
-// Hilt가 이 ViewModel을 생성할 수 있게 표시하는 어노테이션이다.
-// @HiltViewModel이 붙어 있으면 hiltViewModel()로 ViewModel을 받을 수 있다.
+
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     // HomeRepository는 홈 화면에 필요한 데이터를 가져오는 역할이다.
@@ -136,8 +139,6 @@ class HomeViewModel @Inject constructor(
     private val homeRepository: HomeRepository
 ) : ViewModel() {
 
-    // 내부에서만 수정 가능한 화면 상태 저장소다.
-    // MutableStateFlow는 값 변경이 가능한 StateFlow다.
     // 처음 화면 상태는 HomeUiState() 기본값으로 시작한다.
     private val _uiState = MutableStateFlow(HomeUiState())
 
@@ -259,6 +260,12 @@ ___Hilt Component 구조___
 ### _싱글톤 예시_ 
     
 - 앱 전체에서 하나만 유지할 객체.
+
+        UserStore()로 직접 만들면 @Singleton 의미 없음
+
+        Hilt가 대신 UserStore를 만들어서 넣어줄 때만
+        @Singleton 규칙이 적용됨
+
 ```kt
 @Module
 @InstallIn(SingletonComponent::class)
@@ -274,6 +281,49 @@ object NetworkModule {
     }
 }
 ```
+
+-> _예시 2_
+
+
+```kt
+// 싱글톤
+@Singleton
+class UserStore @Inject constructor() {
+
+    private var name: String = ""
+
+    // 유저 이름을 저장하는 메소드다.
+    fun updateName(newName: String) {
+        name = newName
+    }
+
+    // 현재 저장된 유저 이름을 반환하는 메소드다.
+    fun getName(): String {
+        return name
+    }
+}
+// 싱글톤 사용
+@HiltViewModel
+class HomeViewModel @Inject constructor(
+    private val userStore: UserStore
+) : ViewModel()
+
+@HiltViewModel
+class MyPageViewModel @Inject constructor(
+    private val userStore: UserStore
+) : ViewModel()
+```
+
+둘 다 UserStore를 받는다.
+
+#### 1. @Singleton이 없으면:
+- HomeViewModel용 UserStore 따로 생성될 수 있음
+MyPageViewModel용 UserStore 따로 생성될 수 있음
+
+#### 2.@Singleton이 있으면:
+- HomeViewModel → 같은 UserStore 객체
+MyPageViewModel → 같은 UserStore 객체
+즉, 앱 전체에서 하나를 같이 쓴다.
 
 ### _ActivityRetainedComponent + @ActivityRetainedScoped 예시_
 
@@ -347,6 +397,16 @@ object HomeViewModelModule {
 하지만 단순한 View가 아니라 생명주기를 가진 클래스
     - Fragment = Activity 안에서 갈아끼울 수 있는 작은 화면 컨트롤러
 
+| 구분      | Fragment 방식                                  | Compose 방식                                                            |
+| ------- | -------------------------------------------- | --------------------------------------------------------------------- |
+| 화면 단위   | `Fragment` 클래스                               | `@Composable` 함수                                                      |
+| UI 작성   | XML 또는 View 코드                               | Kotlin 함수                                                             |
+| 화면 생성   | `onCreateView()`                             | `setContent {}`                                                       |
+| 화면 전환   | `FragmentManager` 또는 Navigation Component    | `NavHost`, `composable()`                                             |
+| 상태 관리   | Fragment 내부 변수, ViewModel                    | ViewModel + StateFlow + Compose State                                 |
+| 생명주기    | Fragment 자체 생명주기 있음                          | Composable은 함수라 자체 Fragment 생명주기는 없음                                  |
+| Hilt 범위 | `FragmentComponent`, `@FragmentScoped` 사용 가능 | 보통 `ViewModelComponent`, `ActivityComponent`, `SingletonComponent` 사용 |
+
 #### ex) ___Activity 하나를 큰 틀로 두고, 그 안의 화면 조각들을 Fragment로 갈아끼우는 구조___
 
     MainActivity
@@ -357,7 +417,7 @@ object HomeViewModelModule {
 
 -> _코드예시_
 
-```kt
+```kotlin
 @Module
 @InstallIn(FragmentComponent::class)
 object FragmentModule {
@@ -373,10 +433,202 @@ object FragmentModule {
 }
 ```
 
+### ServiceComponent + @ServiceScoped
 
+- 사용법
     
+    1. 개발자가 Service 클래스를 만든다.
+    2. Activity / Compose 화면에서는 Service 객체를 직접 만들지 않는다.
+    3. Intent로 "이 Service를 실행해라"라고 Android 시스템에 요청한다.
+    4. Android 시스템이 Service 객체를 생성한다.
+    5. Service 객체 안에서 내가 만든 메소드를 호출한다.
+
+| 위치                  | 쓰는 것                              |
+| ------------------- | --------------------------------- |
+| Activity            | `startService()`, `bindService()` |
+| Service 클래스         | `@AndroidEntryPoint`, `@Inject`   |
+| Service 내부에서 사용할 객체 | `@ServiceScoped`                  |
+| Module에서 제공하는 객체    | `@Provides` + `@ServiceScoped`    |
 
 
+- Service가 살아있는 동안 유지되는 객체
+    
+    - 사용 예시
+
+    | 사용 상황                    | 예시 객체                           | 이유                                       |
+    | ------------------------ | ------------------------------- | ---------------------------------------- |
+    | 업로드 / 다운로드 진행 상태         | `UploadSession`                 | Service가 살아있는 동안 진행률 유지                  |
+    | 위치 추적                    | `LocationTrackingSession`       | Foreground Service가 켜져 있는 동안 위치 추적 상태 유지 |
+    | 음악 재생                    | `MusicPlaybackSession`          | 재생 중인 곡, 재생 상태 유지                        |
+    | 타이머 / 운동 기록              | `TimerSession`                  | Service가 살아있는 동안 시간 상태 유지                |
+    | Service 전용 알림 관리자        | `ServiceNotificationController` | Service 알림 생성/수정 담당                      |
+    | WebSocket / Bluetooth 연결 | `ConnectionSession`             | Service가 연결을 소유할 때 연결 상태 유지              |
+
+-> _예시_ (만든 Service를 사용)
+
+```kotlin
+import dagger.hilt.android.scopes.ServiceScoped
+import javax.inject.Inject
+
+// 이 클래스는 Service 하나가 살아있는 동안만 같은 객체로 유지된다.
+// Service가 종료되면 이 객체도 같이 제거된다.
+@ServiceScoped
+class UploadSession @Inject constructor() {
+
+    // 현재 업로드가 진행 중인지 저장하는 변수다.
+    private var isUploading: Boolean = false
+
+    // 현재 업로드 진행률을 저장하는 변수다.
+    private var progress: Int = 0
+
+    // 업로드 세션을 시작하는 메소드다.
+    fun startUpload() {
+        isUploading = true
+        progress = 0
+    }
+
+    // 업로드 진행률을 변경하는 메소드다.
+    fun updateProgress(newProgress: Int) {
+        progress = newProgress
+    }
+
+    // 현재 업로드 진행률을 반환하는 메소드다.
+    fun getProgress(): Int {
+        return progress
+    }
+
+    // 현재 업로드 중인지 반환하는 메소드다.
+    fun isUploading(): Boolean {
+        return isUploading
+    }
+
+    // 업로드 세션을 종료하는 메소드다.
+    fun stopUpload() {
+        isUploading = false
+        progress = 0
+    }
+}
+```
+
+- Service는 ___AndroidManifest.xml에 등록___
+
+```kt
+<service
+    android:name=".service.UploadForegroundService"
+    android:exported="false" />
+```
+
+### ViewComponent + @ViewModelScoped
+
+- ___ViewModel에 붙히지 않는다.___
+
+#### 중요 개념
+
+___1. ViewModelStoreOwner___
+
+| ViewModelStoreOwner | 의미                                          |
+| ------------------- | ------------------------------------------- |
+| Activity            | Activity 기준으로 ViewModel 저장                  |
+| Fragment            | Fragment 기준으로 ViewModel 저장                  |
+| NavBackStackEntry   | Compose Navigation의 특정 화면 기준으로 ViewModel 저장 |
+
+___2. NavBackStackEntry___
+
+| 개념                    | 의미                                        |
+| --------------------- | ----------------------------------------- |
+| **Back Stack**        | 사용자가 이동한 화면들의 기록 목록                       |
+| **NavBackStackEntry** | 그 목록 안에 들어있는 화면 하나의 정보                    |
+| **뒤로 가기**             | Back Stack에서 맨 위 화면을 제거하고 이전 화면으로 돌아가는 동작 |
+
+: NavBackStackEntry가 ViewModelStoreOwner가 될 수 있다/
+
+- Navigation back stack에 쌓인 화면 기록 하나
+
+        NavBackStackEntry = 네비게이션 back stack에 들어있는 화면 기록 1개
+        ViewModelStoreOwner = ViewModel을 저장할 수 있는 주인
+    ->
+
+        NavBackStackEntry는 ViewModelStoreOwner 역할을 할 수 있다.
+        하지만 ViewModelStoreOwner가 항상 NavBackStackEntry인 것은 아니다.
+
+| 구분                    | 의미                                        |
+| --------------------- | ----------------------------------------- |
+| `ViewModelComponent`  | `ViewModel` 하나의 생명주기를 따라가는 Hilt DI 컨테이너   |
+| `@ViewModelScoped`    | 같은 `ViewModel` 안에서만 같은 객체를 재사용하게 하는 Scope |
+| `@HiltViewModel`      | Hilt가 이 ViewModel을 생성하게 만드는 어노테이션         |
+| `@Inject constructor` | Hilt가 생성자에 필요한 객체를 자동으로 넣어주게 하는 문법        |
+
+- 스코프를 쬘 ___뷰모델과 연결___ 하는 법
+
+    - 1. hiltViewModel()
+    - 2. ViewModelProvider
+
+-> _예시_
+
+```kotlin
+import dagger.hilt.android.scopes.ViewModelScoped
+import javax.inject.Inject
+
+// 이 객체는 ViewModelComponent 안에서 한 번 만들어지고 재사용된다.
+// 즉, 같은 ViewModel 안에서는 같은 ProjectSession 객체가 사용된다.
+@ViewModelScoped
+class ProjectSession @Inject constructor() {
+
+    // 현재 ProjectSession 객체가 어떤 객체인지 확인하기 위한 값이다.
+    // 같은 객체면 같은 instanceId가 나온다.
+    val instanceId: Int = System.identityHashCode(this)
+
+    private var title: String = ""
+
+    // 제목을 저장하는 메소드다.
+    fun updateTitle(newTitle: String) {
+        title = newTitle
+    }
+
+    // 현재 저장된 제목을 반환하는 메소드다.
+    fun getTitle(): String {
+        return title
+    }
+
+    // 제목이 비어 있지 않은지 검사하는 메소드다.
+    fun hasValidTitle(): Boolean {
+        return title.isNotBlank()
+    }
+}
+```
+
+```kotlin
+@ViewModelScoped(ProjectCreateViewModel::class) 
+```
+
+
+대신    
+
+```kotlin
+hiltViewModel<ProjectCreateViewModel>()
+```
+
+을 호출한 현재 화면 위치를 기준으로 Hilt가 알아서 ProjectCreateViewModel 전용 DI 공간을 만든다.
+
+-> _예시_
+
+: 과정
+
+    1. 화면에서 hiltViewModel<ProjectCreateViewModel>() 요청
+    2. HiltViewModelFactory가 ProjectCreateViewModel을 만들 준비
+    3. Hilt가 ProjectCreateViewModel 전용 ViewModelComponent 생성
+    4. 생성자에 필요한 ProjectSession 확인
+    5. ProjectSession에 @ViewModelScoped가 붙어 있으므로 ViewModelComponent 안에 캐싱
+    6. ProjectCreateViewModel이 살아있는 동안 같은 ProjectSession 사용
+    7. ViewModel이 clear되면 ViewModelComponent도 제거
+    8. ProjectSession도 제거
+
+-> 구조
+
+    ProjectCreateViewModel
+    ├── ProjectSession(@ViewModelScoped)
+    ├── ProjectValidator(스코프 덕분에 ProjectSession 사용)
+    └── ProjectSubmitter
 
 ---
 
