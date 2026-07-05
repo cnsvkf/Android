@@ -1,7 +1,7 @@
 ## 쓰는 이유
 
 
-#### 데이터를 Repository로 가져오고, ___UseCase로 화면/기능 규칙 생성___
+#### 데이터를 Repository로 가져오고, ___UseCase로 화면/기능 규칙 생성___ 후에 ViewModel에게 넘김
 
     ViewModel
     ↓

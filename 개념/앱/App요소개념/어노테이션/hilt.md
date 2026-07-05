@@ -191,7 +191,7 @@ fun HomeRoute(
 
 ---
 
-### @Mudule + @InstallIn
+### @Module + @InstallIn
 - 클래스 / object / interface에 붙는 어노테이션들
 
 ___1. @Mudule___ :  Hilt에게 ____“직접 만들기 어려운 객체를 어떻게 만들지 알려주는 클래스”____
@@ -703,4 +703,247 @@ object AppModule {
 차이 : @Binds은 생성코드 재활용 가능(객체 재활용은 @Singleton) / @Provides은 객체 생성
 
 ---
+
+## @Dispatcher
+
+- 네트워크, DB,*파일 저장 같은 오래 걸리는 작업을 백그라운드 스레드에서 실행하게 해주는 CoroutineDispatcher
+
+- 각 전용 스레드에서 작업 가능하게 함
+
+| 조건                       | 결과          |
+| ------------------------ | ----------- |
+| 무거운 작업을 `Main`에서 실행      | 화면 멈출 수 있음  |
+| 서버/DB/파일 작업을 `IO`에서 실행   | 화면 계속 사용 가능 |
+| 계산 많은 작업을 `Default`에서 실행 | 화면 계속 사용 가능 |
+| UI 변경을 `Main`에서 실행       | 정상적인 구조     |
+
+
+#### 차이
+| 구분        | IO Dispatcher                    | Android Service         |
+| --------- | -------------------------------- | ----------------------- |
+| 정체        | 코루틴 실행 위치 지정자                    | 안드로이드 컴포넌트              |
+| 관리 주체     | Kotlin Coroutine                 | Android OS              |
+| 역할        | 작업을 어떤 스레드에서 실행할지 결정             | 앱 화면 밖에서도 특정 작업을 유지     |
+| 예시        | 서버 통신, DB 조회, 파일 저장을 IO 스레드에서 실행 | 음악 재생, 위치 추적, 파일 업로드 유지 |
+| 생명주기      | 코루틴 생명주기 따름                      | Service 생명주기 따름         |
+| 앱 종료 후 유지 | 기본적으로 안 됨                        | 종류에 따라 가능               |
+
+| Dispatcher            | 역할               |
+| --------------------- | ---------------- |
+| `Dispatchers.Main`    | UI 작업            |
+| `Dispatchers.IO`      | 서버 통신, DB, 파일 작업 |
+| `Dispatchers.Default` | 계산이 많은 작업        |
+| `Unconfined`          | 실무에서 거의 안 씀      |
+
+
+### Dispatcher.Main
+
+- ___UI 작업용___ Dispatcher
+
+
+- ____viewModelScope.launch { }는 Android에서 기본적으로 Dispatchers.Main에서 시작____
+
+-> _예시_
+
+```kotlin
+// 화면 상태 변경
+_uiState.update { ... }
+
+// Toast 표시
+Toast.makeText(...).show()
+
+// Compose 상태 변경
+text = "Hello"
+
+// Snackbar 표시
+snackbarHostState.showSnackbar(...)
+```
+
+### Dispatchers.IO 
+
+- ___입출력 작업용___
+
+| 작업        | 예시               |
+| --------- | ---------------- |
+| 서버 통신     | Retrofit API 호출  |
+| DB 작업     | Room 조회, 저장, 삭제  |
+| 파일 작업     | 이미지 저장, 로그 파일 저장 |
+| DataStore | 토큰 저장, 설정값 저장    |
+
+
+-> _예시_
+
+```kotlin
+class ChatRepositoryImpl @Inject constructor(
+    private val chatApi: ChatApi,
+    private val chatMessageDao: ChatMessageDao,
+    @IoDispatcher private val ioDispatcher: CoroutineDispatcher
+) : ChatRepository {
+
+    // 서버에서 채팅 메시지를 가져오고 로컬 DB에 저장하는 메소드다.
+    // 서버 통신과 DB 저장은 오래 걸릴 수 있으므로 IO Dispatcher에서 실행한다.
+    override suspend fun syncMessages(): List<ChatMessage> {
+        return withContext(ioDispatcher) {
+            val messageDtos = chatApi.getChatMessages()
+
+            val messageEntities = messageDtos.map { dto ->
+                dto.toEntity()
+            }
+
+            chatMessageDao.upsertMessages(messageEntities)
+
+            messageEntities.map { entity ->
+                entity.toDomain()
+            }
+        }
+    }
+
+    // 채팅 메시지를 서버로 전송하는 메소드다.
+    // 네트워크 요청이므로 IO Dispatcher에서 실행한다.
+    override suspend fun sendMessage(text: String): ChatMessage {
+    // 이 블록은 메인 스레드가 아니라 IO 작업용 백그라운드 스레드에서 실행
+        return withContext(ioDispatcher) {
+            val request = SendMessageRequestDto(text = text)
+
+            chatApi.sendMessage(request)
+                .toDomain()
+        }
+    }
+}
+```
+
+### Dispatchers.Default
+
+- __계산용 Dispatcher__
+
+| 작업     | 예시                      |
+| ------ | ----------------------- |
+| 정렬     | 수천 개 프로젝트 추천 점수 계산 후 정렬 |
+| 필터링    | 큰 리스트에서 조건 검색           |
+| 이미지 처리 | 필터, 리사이즈                |
+| 암호화/해시 | 문자열 해시 계산               |
+| 통계 계산  | 평균, 랭킹, 점수 계산           |
+
+---
+
+## Qualifier / @Retention
+
+| 어노테이션        | 역할                              |
+| ------------ | ------------------------------- |
+| `@Qualifier` | **같은 타입의 의존성 여러 개를 구분**하기 위해 사용 |
+| `@Retention` | 만든 어노테이션이 **언제까지 유지될지** 정함      |
+
+    CoroutineDispatcher = Dispatchers.Main
+    CoroutineDispatcher = Dispatchers.IO
+    CoroutineDispatcher = Dispatchers.Default
+
+: CoroutineDispatcher 두 개의 타입이 똑같음
+
+- CoroutineDispatcher = 코루틴을 어디서 실행할지 정하는 관리자 타입
+
+-> 이름표 붙힘
+```kotlin
+CoroutineDispatcher + @MainDispatcher
+CoroutineDispatcher + @IoDispatcher
+CoroutineDispatcher + @DefaultDispatcher
+```
+
+-> 유지 범위
+
+```kotlin
+@Retention(AnnotationRetention.SOURCE)
+@Retention(AnnotationRetention.BINARY)
+@Retention(AnnotationRetention.RUNTIME)
+```
+
+| 구분                            | BINARY | RUNTIME     |
+| ----------------------------- | ------ | ----------- |
+| 컴파일 결과에 남음                    | O      | O           |
+| Hilt/Dagger 같은 컴파일 도구가 볼 수 있음 | O      | O           |
+| 앱 실행 중 reflection으로 읽을 수 있음   | X      | O           |
+| Hilt Qualifier에 적합            | O      | 가능하지만 보통 과함 |
+
+
+| 종류        | 남아있는 범위   | 런타임 reflection 가능? | 주 사용처                   |
+| --------- | --------- | -----------------: | ----------------------- |
+| `SOURCE`  | 소스 코드까지만  |                불가능 | 컴파일 검사, Lint, 코드 생성 일부  |
+| `BINARY`  | 컴파일된 파일까지 |                불가능 | Hilt, Dagger, 컴파일 타임 처리 |
+| `RUNTIME` | 앱 실행 중까지  |                 가능 | Reflection으로 어노테이션 읽을 때 |
+
+
+1. @IoDispatcher CoroutineDispatcher 필요함
+2. @IoDispatcher CoroutineDispatcher 제공함
+
+: 이걸 BINARY로 연결함
+
+
+-> Qualifier / @Retention 로 구분 예시
+
+```kotlin
+import javax.inject.Qualifier
+import kotlin.annotation.Retention
+import kotlin.annotation.AnnotationRetention
+
+// 이 어노테이션은 CoroutineDispatcher 중에서 IO Dispatcher를 의미하는 이름표다.
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class IoDispatcher
+
+// 이 어노테이션은 CoroutineDispatcher 중에서 Main Dispatcher를 의미하는 이름표다.
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class MainDispatcher
+
+// 이 어노테이션은 CoroutineDispatcher 중에서 Default Dispatcher를 의미하는 이름표다.
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class DefaultDispatcher
+```
+: @Retention을 BINARY로 쓰는 이유는 Dispatcher 3가지를 구분하고 필요한 곳에 연결하면 끝나니깐 사용
+
+\+
+
+annotation class MainDispatcher만 만든다고 Hilt가 구분하는 게 아니다.
+그 어노테이션 위에 ___@Qualifier를 붙였기 때문에___ Hilt가 “아, 이건 DI 구분용 이름표구나”라고 해석
+
+-> Hilt Module로 붙히기
+
+```kotlin
+import dagger.Module
+import dagger.Provides
+import dagger.hilt.InstallIn
+import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+
+@Module
+@InstallIn(SingletonComponent::class)
+object DispatcherModule {
+
+    // IO 작업용 Dispatcher를 Hilt에 등록하는 메소드다.
+    // 서버 통신, DB, 파일 작업에 사용한다.
+    @Provides
+    @IoDispatcher
+    fun provideIoDispatcher(): CoroutineDispatcher {
+        return Dispatchers.IO
+    }
+
+    // Main 작업용 Dispatcher를 Hilt에 등록하는 메소드다.
+    // UI 상태 변경, 화면 관련 작업에 사용한다.
+    @Provides
+    @MainDispatcher
+    fun provideMainDispatcher(): CoroutineDispatcher {
+        return Dispatchers.Main
+    }
+
+    // Default 작업용 Dispatcher를 Hilt에 등록하는 메소드다.
+    // 정렬, 필터링, 계산처럼 CPU 연산이 많은 작업에 사용한다.
+    @Provides
+    @DefaultDispatcher
+    fun provideDefaultDispatcher(): CoroutineDispatcher {
+        return Dispatchers.Default
+    }
+}
+```
+--- 
 
